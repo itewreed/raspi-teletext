@@ -67,6 +67,10 @@ console, not from inside a desktop session. The console stays visible
 below the VBI lines, and the normal mode comes back when the program
 exits.
 
+If the raspi-teletext gets interrupted at startup check if a desktop manager is running. It has to be stopped before the program can run, i.e.
+
+```sudo systemctl stop lightdm```
+
 At startup the programs measure the field lengths to find out which
 field is which, and print the result. If teletext pages come out
 garbled, try again with `RASPI_TELETEXT_SWAP_FIELDS=1` set in the
