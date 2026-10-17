@@ -25,9 +25,11 @@ TELETEXT_OFILES=teletext.o $(RENDER_OFILES) buffer.o hamming.o demo.o
 
 CEA608_OFILES=cea608.o $(RENDER_OFILES) cea608buffer.o
 
-VIDEODAT_OFILES=videodat.o $(RENDER_OFILES) vdbuffer.o vdline.o vdpacket.o
+VIDEODAT_OFILES=videodat.o $(RENDER_OFILES) vdbuffer.o vdline.o vdpacket.o vddemo.o
 
-all: tvctl teletext cea608 videodat vdenc vdvbi
+TTVD_OFILES=ttvd.o $(RENDER_OFILES) buffer.o hamming.o demo.o vdbuffer.o vdline.o vdpacket.o vddemo.o
+
+all: tvctl teletext cea608 videodat ttvd vdenc vdvbi
 
 teletext: $(TELETEXT_OFILES)
 	$(CC) -o $@ -Wl,--whole-archive $(TELETEXT_OFILES) $(LDFLAGS) -Wl,--no-whole-archive -rdynamic
@@ -37,6 +39,9 @@ cea608: $(CEA608_OFILES)
 
 videodat: $(VIDEODAT_OFILES)
 	$(CC) -o $@ -Wl,--whole-archive $(VIDEODAT_OFILES) $(LDFLAGS) -Wl,--no-whole-archive -rdynamic -lm
+
+ttvd: $(TTVD_OFILES)
+	$(CC) -o $@ -Wl,--whole-archive $(TTVD_OFILES) $(LDFLAGS) -Wl,--no-whole-archive -rdynamic -lm
 
 # vdenc and vdvbi don't need the display, so they also build on a PC.
 vdenc: vdenc.o vdpacket.o
@@ -50,4 +55,4 @@ vdvbi: vdvbi.o vdline.o
 	$(CC) $(CFLAGS) $(INCLUDES) -g -c $< -o $@ -Wno-deprecated-declarations
 
 clean:
-	rm -f *.o teletext cea608 tvctl videodat vdenc vdvbi
+	rm -f *.o teletext cea608 tvctl videodat ttvd vdenc vdvbi

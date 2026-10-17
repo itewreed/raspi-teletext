@@ -71,8 +71,13 @@ void vd_push_flush(void)
 
 int vd_read_lines(void)
 {
+    return vd_read_lines_from(stdin);
+}
+
+int vd_read_lines_from(FILE *f)
+{
     uint8_t buf[VD_LINE_BYTES];
-    size_t n = fread(buf, 1, VD_LINE_BYTES, stdin);
+    size_t n = fread(buf, 1, VD_LINE_BYTES, f);
     vd_push_bytes(buf, n);
     return n == VD_LINE_BYTES;
 }

@@ -308,3 +308,50 @@ headers, end packets and info blocks is the DOS date and time the packet
 goes out; info blocks are 00, send time, a 16 bit count, the name length
 and the name. Still unknown, and sent as zeros: the last two bytes of
 the end packet and what follows the name in an info block.
+
+Teletext and VideoDat together (experimental)
+---------------------------------------------
+
+**This program is experimental. It has only been checked in software,
+not on a TV or capture card, and teletext may not decode reliably.**
+
+`teletext` and `videodat` can't run at the same time: each needs the
+display to itself (KMS), or would cover the other's lines (dispmanx).
+`ttvd` sends both in one picture, Pro7 style, with teletext on some VBI
+lines and VideoDat on others:
+
+    ttvd [-t file] [-v file] [-m mask] [-o mask] [-M mask] [-O mask] \
+         [-l level] [-x start] [-s seed] [-w width]
+
+`-t` is the teletext input (42 byte packets, as for "teletext -") and
+`-v` the VideoDat input (the byte stream from `vdenc`, as for
+"videodat -"). "-" reads stdin, which only one of them can do. Without
+`-t` or `-v`, that part shows its demo. For example:
+
+    ./vdenc -l FILE.ZIP | sudo ./ttvd -t pages.t42 -v -
+
+The masks work as in the two programs, in hexadecimal: `-m` and `-o`
+are the teletext masks (bit set = no teletext on the line), `-M` and
+`-O` the VideoDat masks (bit set = VideoDat on the line). Bit n is line
+7+n on the first field and 320+n on the second, see the tables above.
+All four default to 0x0070, so VideoDat is on lines 11-13 and 324-326
+and teletext on the other 26 lines (650 packets/s). A line in both
+masks carries VideoDat, and ttvd warns about it. For example, teletext
+only on lines 7-10 and 320-323 next to the default VideoDat lines:
+
+    sudo ./ttvd -m 0xFFF0 -t pages.t42
+
+`-l`, `-x` and `-s` are as for videodat. ttvd runs until both inputs
+have ended; with a demo, it runs until it is stopped.
+
+Why this is experimental: teletext draws one pixel per teletext bit,
+370 pixels for the whole line, while videodat needs 720 pixels (13.5
+MHz) for its 2 Mbit/s signal. Both have to share one image here. At 720
+pixels a teletext bit (6.9375 Mbit/s) is 1.946 pixels wide, so bits are
+drawn 1 or 2 pixels wide, and an edge can be up to half a pixel (36 ns,
+a quarter of a teletext bit) away from where it belongs. The bits are
+still all there, but the eye of the signal is narrower than with
+`teletext`. `-w` sets a wider image (eg 1440), which the display
+hardware scales down to the line; this makes the steps smaller, but how
+the scaler filters them hasn't been measured. Please report whether
+teletext decodes, and with which `-w`.

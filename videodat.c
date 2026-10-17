@@ -30,8 +30,8 @@
 
 #include "render.h"
 #include "vdbuffer.h"
+#include "vddemo.h"
 #include "vdline.h"
-#include "vdpacket.h"
 
 // One image pixel per output pixel (13.5 MHz), so a bit is 6.75 pixels.
 #define WIDTH (720)
@@ -69,48 +69,6 @@ void draw(uint8_t *image, int next_resource)
 void init(uint8_t *image)
 {
     draw(image, 0);
-}
-
-
-static void emit(const uint8_t *data, size_t len, void *ctx)
-{
-    vd_push_bytes(data, len);
-}
-
-
-static vd_stream clock_stream;
-static time_t last_clock = 0;
-
-static void clock_hook(void *ctx)
-{
-    time_t now = time(NULL);
-    if (now - last_clock >= 5) {
-        vd_send_clock(&clock_stream, now);
-        last_clock = now;
-    }
-}
-
-
-// Send a small text file over and over, with the clock every 5 seconds.
-static void demo(uint32_t seed)
-{
-    static uint8_t text[4096];
-    vd_tx tx;
-    vd_stream files;
-    size_t len = 0;
-
-    vd_tx_init(&tx, emit, NULL, seed, 2);
-    tx.hook = clock_hook;
-    vd_stream_init(&files, &tx, 0x03, 0);
-    vd_clock_init(&clock_stream, &tx);
-    for (int n = 1; len < sizeof text - 80; n++)
-        len += snprintf((char *)text + len, sizeof text - len,
-                        "raspi-teletext VideoDat test, line %d\r\n", n);
-
-    while (1) {
-        vd_send_info(&files, "RASPI-VD", 1);
-        vd_send_file(&files, "RASPI.TXT", text, len, time(NULL));
-    }
 }
 
 
@@ -173,7 +131,7 @@ int main(int argc, char *argv[])
         vd_wait_empty();
         usleep(100000); // let the last lines go out
     } else {
-        demo(seed);
+        vd_demo(seed);
     }
 
     render_stop(render_handle);
