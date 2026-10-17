@@ -361,8 +361,10 @@ static int wait_event(render_shared *r, int *pending)
 static int wait_vblank(render_shared *r)
 {
     r->vblank_pending = 1;
-    if (drmCrtcQueueSequence(r->fd, r->crtc_id, DRM_CRTC_SEQUENCE_RELATIVE, 1, NULL, (uintptr_t)r))
+    if (drmCrtcQueueSequence(r->fd, r->crtc_id, DRM_CRTC_SEQUENCE_RELATIVE, 1, NULL, (uintptr_t)r)) {
+        fprintf(stderr, "Waiting for vblank on CRTC %u failed: %s\n", r->crtc_id, strerror(errno));
         return -1;
+    }
     return wait_event(r, &r->vblank_pending);
 }
 
@@ -623,6 +625,15 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
         exit(-1);
     }
     fprintf(stderr, "Output mode %s (%s) on %u VBI lines per field.\n", mode.name, norm, vbi_lines);
+
+    uint64_t active = 0, conn_crtc = 0;
+    get_prop_value(r->fd, r->crtc_id, DRM_MODE_OBJECT_CRTC, "ACTIVE", &active);
+    get_prop_value(r->fd, r->conn_id, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID", &conn_crtc);
+    crtc = drmModeGetCrtc(r->fd, r->crtc_id);
+    fprintf(stderr, "CRTC %u (index %d): active %u, mode %s; connector %u on CRTC %u; planes %u/%u.\n",
+            r->crtc_id, crtc_index, (unsigned)active, (crtc && crtc->mode_valid) ? crtc->mode.name : "none",
+            r->conn_id, (unsigned)conn_crtc, r->primary_id, r->plane_id);
+    drmModeFreeCrtc(crtc);
 
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
