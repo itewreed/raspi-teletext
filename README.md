@@ -134,3 +134,57 @@ output at 59.97 fields per second.  See
 https://en.wikipedia.org/wiki/EIA-608
 
 for details on the protocol and links to the specifications.
+
+Channel VideoDat
+----------------
+
+`videodat` sends data the way Channel VideoDat did, a service Pro7 ran
+in the VBI from 1990 to 1994. Together with the decoder in
+https://github.com/itewreed/channel-videodat-decoder this allows the
+whole chain from files to a VBI capture and back to be tested.
+
+    videodat [-m first field lines] [-o second field lines] [-l level] \
+             [-x start] [-s seed] [-]
+
+With no arguments, a small text file and the clock are sent over and
+over. Running "videodat -" sends the byte stream read from stdin, which
+`vdenc` makes from files:
+
+    ./vdenc -l -i MYPACKET FILE1.EXE README.TXT | sudo ./videodat -
+
+The line masks select the lines carrying data: bit n is line 7+n on the
+first field and 320+n on the second (note that this is the other way
+round from teletext). The default, 0x0070, is lines 11-13 and 324-326,
+which is where Pro7 sent it. `-x` moves the first bit, in pixels of
+74 ns, and `-s` seeds the scrambling. The other options are as for
+teletext.
+
+    vdenc [-a stream] [-u] [-r count] [-c seconds] [-b rate] [-i text] \
+          [-t time] [-s seed] [-l] file...
+
+writes the files as packets to stdout: a header packet, one packet per
+255 bytes and an end packet per file, with clock packets in between.
+`-r` sets how often each group of 4 packets is sent (2, as broadcast),
+`-l` loops forever. vdenc doesn't need a Raspberry Pi, and its output
+can be read by `videodat_decoder.py --bytes`.
+
+    vdvbi [-m mask] [-o mask] [-x us] [-b black] [-w white] [-g ns] \
+          [-n noise] [-s seed] < stream > capture.vbi
+
+turns the byte stream into what a bttv card captures from /dev/vbi0
+(2048 samples per line, 32 lines per frame), with a band limit and
+optional noise, so error correction can be tried out without hardware:
+
+    ./vdenc FILE.ZIP | ./vdvbi -n 15 > test.vbi
+    python3 videodat_decoder.py test.vbi
+
+The signal: 10 bytes per line, NRZ at 2 Mbit/s starting about 11.7 us
+after the line sync. Each byte is an inverted UART frame: a white start
+bit, 8 data bits LSB first with 1 = black, and a black stop bit. The
+packets (sync 56 AE, header, scrambled payload, 16 bit sum) are
+described in vdpacket.c.
+
+Some details could not be checked against a recording and are guesses:
+the group counter in the header counts groups of 4 packets, the send
+time in file headers is a DOS date and time, and the 6 bytes before the
+name in an info block are zero.
