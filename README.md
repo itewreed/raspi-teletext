@@ -92,32 +92,106 @@ registers are in a known state before doing anything. "on" and
 "off" commands will have no effect if the state is already on or
 off, or if the registers are in an unknown state.
 
-    teletext [-m even field line mask] [-o odd field line mask] \
+    teletext [-m first field mask] [-o second field mask] \
              [-l white level] [-f] [-]
 
-Optional line mask arguments are a 16 bit mask to create quiet lines
-in vbi output, first line is LSB, last is MSB. For example running
-"teletext -m 0xFFF0 -o 0x0FFF" will output teletext packets on the
-first four lines of even fields and last four lines of odd fields.
-If only one mask is provided the same value will be used for both
-fields.
+Without arguments, teletext shows a demo: a page with the Pi's host
+name, IP address, CPU frequency and load, memory and temperature, and
+the date and time in the page header. With "-" as
+the last argument, it sends packets read from stdin instead (see
+"Sending your own packets" below).
 
-The white level is specified as a number between 0 and 100. This
-is the "brightness" of the high bits of the teletext signal.
-Default is 100.
+### Line masks (`-m` and `-o`)
 
-The '-f' argument activates full-field mode, where every available
-ine on the display is used for teletext, allowing much greater
-bandwidth. Most decoders do not support this mode.
+By default teletext uses all 16 VBI lines of each field: lines 7-22 on
+the first field and 320-335 on the second, 32 lines per frame. The line
+masks switch lines off. They are 16 bit numbers, best written in
+hexadecimal with a leading `0x` (without it, the number is read as
+decimal). Bit n set means line 7+n on the first field (`-m`) or line
+320+n on the second field (`-o`) stays quiet (black); bit n clear means
+it carries teletext. This is the other way round from `videodat`. If
+only one of `-m` and `-o` is given, it is used for both fields.
 
-Running with no arguments will show a demo. Running "teletext -"
-will read packets from stdin and display them. You can therefore
-pipe packets from another tool, possibly over the network with ssh
-or netcat.
+| bit | 0  | 1  | 2  | 3  | 4  | 5  | 6  | 7  | 8  | 9  | 10 | 11 | 12 | 13 | 14 | 15 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| `-m` line | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 |
+| `-o` line | 320 | 321 | 322 | 323 | 324 | 325 | 326 | 327 | 328 | 329 | 330 | 331 | 332 | 333 | 334 | 335 |
 
-The packet format is 42 byte raw binary packets, without the clock
-run-in. Each packet received will be transmitted once, so you must
-send packets endlessly. See
+Each line carries one packet per frame, so every line in the frame adds
+25 packets per second. Examples, with the same mask on both fields:
+
+| mask   | teletext on first field | teletext on second field | lines per frame | packets/s |
+|--------|-------------------------|--------------------------|-----------------|-----------|
+| 0x0000 | 7-22                    | 320-335                  | 32 (default)    | 800       |
+| 0x0070 | 7-10, 14-22             | 320-323, 327-335         | 26              | 650       |
+| 0xFF00 | 7-14                    | 320-327                  | 16              | 400       |
+| 0x00FF | 15-22                   | 328-335                  | 16              | 400       |
+| 0xFFF0 | 7-10                    | 320-323                  | 8               | 200       |
+| 0x0FFF | 19-22                   | 332-335                  | 8               | 200       |
+| 0xFFFE | 7                       | 320                      | 2               | 50        |
+| 0xFFFF | none                    | none                     | 0               | 0         |
+
+0x0070 keeps lines 11-13 and 324-326 free, the lines Channel VideoDat
+used. Different masks per field are added up: `-m 0xFFF0 -o 0x0FFF`
+sends on lines 7-10 of the first field and 332-335 of the second, 8
+lines per frame, 200 packets/s.
+
+The first field is the one with lines 1-312. On KMS systems the order
+of the fields is measured at startup; if it comes out wrong (see
+`RASPI_TELETEXT_SWAP_FIELDS` above), the two masks swap too.
+
+### Other options
+
+`-l` sets the white level, the brightness of the 1 bits, from 0 to 100
+(default 100). Lower it if the signal overshoots on your TV or capture
+card.
+
+`-f` turns on full-field mode: every line of the picture carries
+teletext, not just the VBI lines, for a much higher data rate (576
+lines per frame with dispmanx, 608 with KMS, so 14400 or 15200
+packets/s). The masks still apply to the first 16 lines of each field;
+all lines below them always carry data. Most TVs and decoders only look
+at the VBI lines and can't use this mode.
+
+### Sending your own packets
+
+"teletext -" reads packets from stdin. A packet is 42 bytes of raw
+binary data, exactly as it is sent on the line after the clock run-in
+and framing code:
+
+| bytes | content |
+|-------|---------|
+| 0-1   | magazine and packet number (MRAG), Hamming 8/4 coded |
+| 2-41  | 40 bytes of packet data, eg a page header or a row of text with odd parity |
+
+This is the same format as `.t42` files. teletext puts the clock run-in
+and framing code (55 55 27) in front of each packet itself and sends the
+bytes as they are, LSB first; it doesn't add Hamming codes or parity, so
+the packets must already have them.
+
+The packets are sent in the order they arrive, one per line, from the
+top line of the first field to the bottom line of the second. Each
+packet is sent once. A TV only shows a page that arrives after it was
+asked for, so pages have to be sent over and over, as a carousel, the
+way a broadcaster does. teletext buffers 64 packets; when the buffer is
+full it stops reading until there is room, and when it runs empty it
+sends filler packets (a blank row 25 of magazine 8) until more arrive.
+When stdin ends, teletext exits.
+
+Packets can come from any program, and over the network with ssh or
+netcat, for example:
+
+    while true; do cat pages.t42; done | sudo ./teletext -
+
+    # on the Pi
+    nc -l -p 5000 | sudo ./teletext -
+    # on another machine
+    some-teletext-generator | nc raspberrypi 5000
+
+[vbit2](https://github.com/peterkvt80/vbit2) makes a teletext service
+from page files and writes it in this format.
+
+See
 
 http://www.etsi.org/deliver/etsi_i_ets/300700_300799/300706/01_60/ets_300706e01p.pdf
 
