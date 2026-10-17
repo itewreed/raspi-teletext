@@ -92,6 +92,7 @@ typedef struct render_shared {
     // parity of the fields drawn from odd rows, or -1 if unknown
     int odd_parity;
     int swap;
+    int xshift;
 
     uint8_t *image;
     int width;
@@ -548,6 +549,8 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
     r->draw_func = draw_func;
     r->delay = (delay > -1) ? delay : 2000;
     r->swap = getenv("RASPI_TELETEXT_SWAP_FIELDS") != NULL;
+    // horizontal position of the VBI data in output pixels (74ns each)
+    r->xshift = getenv("RASPI_TELETEXT_XSHIFT") ? atoi(getenv("RASPI_TELETEXT_XSHIFT")) : 0;
     r->width = width;
     r->height = height;
     r->image = calloc(1, PITCH(width) * height);
@@ -653,7 +656,7 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
         add_plane(req, r->fd, r->primary_id, r->crtc_id, picture_fb, picture_w, picture_h,
                   0, 2 * vbi_lines, mode.hdisplay, mode.vdisplay - 2 * vbi_lines);
         add_plane(req, r->fd, r->plane_id, r->crtc_id, r->vbi[0].fb_id, width, height,
-                  0, 0, mode.hdisplay, height);
+                  r->xshift, 0, mode.hdisplay, height);
         ret = drmModeAtomicCommit(r->fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
         if (ret)
             fprintf(stderr, "Mode set failed: %s\n", strerror(errno));
