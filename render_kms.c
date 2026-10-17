@@ -549,8 +549,11 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
     r->draw_func = draw_func;
     r->delay = (delay > -1) ? delay : 2000;
     r->swap = getenv("RASPI_TELETEXT_SWAP_FIELDS") != NULL;
-    // horizontal position of the VBI data in output pixels (74ns each)
-    r->xshift = getenv("RASPI_TELETEXT_XSHIFT") ? atoi(getenv("RASPI_TELETEXT_XSHIFT")) : 0;
+    // Horizontal position of the VBI data in output pixels (74ns each).
+    // The VEC starts the active line later than the firmware did, and
+    // blanks the end of it, so move the data left. -20 was measured on a
+    // Pi 4 to put the clock run-in where broadcasts have it.
+    r->xshift = getenv("RASPI_TELETEXT_XSHIFT") ? atoi(getenv("RASPI_TELETEXT_XSHIFT")) : -20;
     r->width = width;
     r->height = height;
     r->image = calloc(1, PITCH(width) * height);

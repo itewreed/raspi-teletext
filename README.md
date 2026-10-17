@@ -72,6 +72,11 @@ field is which, and print the result. If teletext pages come out
 garbled, try again with `RASPI_TELETEXT_SWAP_FIELDS=1` set in the
 environment, and please report which one works.
 
+The data is moved 20 pixels left of where dispmanx put it, which puts
+the clock run-in where real broadcasts have it on a Pi 4. Set
+`RASPI_TELETEXT_XSHIFT` to a number of pixels (74 ns each) to adjust
+it.
+
 Detailed Usage
 --------------
 
