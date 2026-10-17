@@ -20,13 +20,13 @@
 // teletext and videodat each draw their own image at their own pixel
 // rate: one pixel per teletext bit (370 pixels per line), or 720 pixels
 // per line at 13.5 MHz for VideoDat. Here both go into one image, which
-// the display hardware scales to the line. Captures show that the scaler
-// interpolates, so edges keep their position between output pixels. The
-// default width of 740 gives exactly 2 pixels per teletext bit, so its
-// edges are where they belong, while the 500 ns VideoDat bits are 6.94
-// pixels wide and their edges up to half a pixel (36 ns) off. At 720
-// pixels it was the teletext edges that were up to 36 ns off, which a
-// capture showed as 21 ns rms edge jitter against 2 ns with teletext.
+// the display hardware scales to the line. The scaler interpolates, so
+// edges keep their position between output pixels. The default width of
+// 1480 gives exactly 4 pixels per teletext bit, so its edges are where
+// they belong; the 500 ns VideoDat bits are 13.9 pixels wide and their
+// edges up to 18 ns off. Captures showed teletext edge jitter of 21 ns
+// rms at 720 pixels, 11 ns at 1440 and 3 ns at 1480, against 2 ns from
+// teletext alone.
 
 #include <pthread.h>
 #include <stdio.h>
@@ -55,7 +55,7 @@
 // Bit n of a mask is line 7+n (first field) or 320+n (second field).
 #define DEFAULT_MASK (0x0070)
 
-int width = 2 * TT_WIDTH;    // 2 pixels per teletext bit
+int width = 4 * TT_WIDTH;    // 4 pixels per teletext bit
 uint16_t tt_mask[2];        // bit set = no teletext on this line
 uint16_t vd_mask[2];        // bit set = VideoDat on this line
 double vd_start = 44;       // first VideoDat bit, in pixels of 74 ns
@@ -178,7 +178,7 @@ static void usage(const char *prog)
         "  -l level  white level 0-100 (default 100)\n"
         "  -x start  first VideoDat bit in pixels of 74 ns (default 44)\n"
         "  -s seed   seed for the VideoDat demo scrambling\n"
-        "  -w width  image width in pixels for the whole line (default 740)\n",
+        "  -w width  image width in pixels for the whole line (default 1480)\n",
         prog);
     exit(1);
 }

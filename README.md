@@ -348,23 +348,25 @@ Why this is experimental: teletext draws one pixel per teletext bit,
 370 pixels for the whole line, while videodat needs 720 pixels (13.5
 MHz) for its 2 Mbit/s signal. Both have to share one image here, which
 the display hardware scales to the line. `-w` sets the width of that
-image. The default, 740, gives exactly 2 pixels per teletext bit; the
-VideoDat bits are then 6.94 pixels wide, so their edges can be up to 36
-ns (7% of a VideoDat bit) off, about as much as with videodat itself.
+image. The default, 1480, gives exactly 4 pixels per teletext bit; the
+VideoDat bits are then 13.9 pixels wide, so their edges can be up to 18
+ns (4% of a VideoDat bit) off.
 
-Captures with a bt848 card of the first version (720 pixels) and of
-1440 pixels, compared with `teletext` alone (edge timing measured on
-every 50th frame, VideoDat decoded from all 30 seconds):
+Captures with a bt848 card at several widths, compared with `teletext`
+alone (edge timing measured on every 10th frame, teletext and VideoDat
+decoded from all 30 seconds):
 
-| capture         | teletext edge jitter | worst edge | VideoDat packets |
-|-----------------|----------------------|------------|------------------|
-| teletext only   | 2 ns rms             | 11 ns      | -                |
-| ttvd -w 720     | 21 ns rms            | 44 ns      | all checksums ok |
-| ttvd -w 1440    | 11 ns rms            | 23 ns      | all checksums ok |
+| capture         | teletext edge jitter | worst edge | VideoDat edge jitter |
+|-----------------|----------------------|------------|----------------------|
+| teletext only   | 1.9 ns rms           | 11 ns      | -                    |
+| ttvd -w 720     | 21 ns rms            | 44 ns      | 23 ns rms            |
+| ttvd -w 1440    | 10.5 ns rms          | 23 ns      | 10 ns rms            |
+| ttvd -w 1480    | 3.1 ns rms           | 9 ns       | 11 ns rms            |
 
 A teletext bit is 144 ns. At 720 pixels a teletext bit is 1.946 pixels
 wide and its edges land up to half a pixel off, which made teletext
-less reliable on a TV; 1440 pixels halved that. The scaler keeps edge
-positions between output pixels, so with a whole number of pixels per
-teletext bit (740 or 1480) the jitter should drop to that of `teletext`
-alone. That still has to be confirmed with a capture.
+less reliable on a TV. At 1440 pixels the steps are half as big. At
+1480 every teletext bit is 4 pixels wide, and as the scaler keeps edge
+positions between output pixels, the edges are almost as clean as with
+`teletext` alone. All VideoDat packets had good checksums at every
+width.
