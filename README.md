@@ -346,12 +346,25 @@ have ended; with a demo, it runs until it is stopped.
 
 Why this is experimental: teletext draws one pixel per teletext bit,
 370 pixels for the whole line, while videodat needs 720 pixels (13.5
-MHz) for its 2 Mbit/s signal. Both have to share one image here. At 720
-pixels a teletext bit (6.9375 Mbit/s) is 1.946 pixels wide, so bits are
-drawn 1 or 2 pixels wide, and an edge can be up to half a pixel (36 ns,
-a quarter of a teletext bit) away from where it belongs. The bits are
-still all there, but the eye of the signal is narrower than with
-`teletext`. `-w` sets a wider image (eg 1440), which the display
-hardware scales down to the line; this makes the steps smaller, but how
-the scaler filters them hasn't been measured. Please report whether
-teletext decodes, and with which `-w`.
+MHz) for its 2 Mbit/s signal. Both have to share one image here, which
+the display hardware scales to the line. `-w` sets the width of that
+image. The default, 740, gives exactly 2 pixels per teletext bit; the
+VideoDat bits are then 6.94 pixels wide, so their edges can be up to 36
+ns (7% of a VideoDat bit) off, about as much as with videodat itself.
+
+Captures with a bt848 card of the first version (720 pixels) and of
+1440 pixels, compared with `teletext` alone (edge timing measured on
+every 50th frame, VideoDat decoded from all 30 seconds):
+
+| capture         | teletext edge jitter | worst edge | VideoDat packets |
+|-----------------|----------------------|------------|------------------|
+| teletext only   | 2 ns rms             | 11 ns      | -                |
+| ttvd -w 720     | 21 ns rms            | 44 ns      | all checksums ok |
+| ttvd -w 1440    | 11 ns rms            | 23 ns      | all checksums ok |
+
+A teletext bit is 144 ns. At 720 pixels a teletext bit is 1.946 pixels
+wide and its edges land up to half a pixel off, which made teletext
+less reliable on a TV; 1440 pixels halved that. The scaler keeps edge
+positions between output pixels, so with a whole number of pixels per
+teletext bit (740 or 1480) the jitter should drop to that of `teletext`
+alone. That still has to be confirmed with a capture.
