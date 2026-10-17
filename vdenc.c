@@ -57,6 +57,12 @@ static time_t stream_time(void)
 }
 
 
+static time_t stream_now(void *ctx)
+{
+    return stream_time();
+}
+
+
 static void clock_hook(void *ctx)
 {
     double t = bytes_out / rate;
@@ -156,16 +162,18 @@ int main(int argc, char *argv[])
     vd_stream fs;
     vd_tx_init(&tx, emit, NULL, seed, repeat);
     tx.hook = clock_hook;
+    tx.now = stream_now;
     vd_stream_init(&fs, &tx, stream, sub);
-    vd_stream_init(&clock_stream, &tx, 0x01, 0);
+    vd_clock_init(&clock_stream, &tx);
 
     do {
         if (info)
-            vd_send_info(&fs, info);
+            vd_send_info(&fs, info, nfiles);
         for (int n = 0; n < nfiles; n++)
             vd_send_file(&fs, files[n].name, files[n].data, files[n].size,
-                         files[n].mtime, stream_time());
+                         files[n].mtime);
     } while (loop);
+    vd_flush(&fs);
 
     // fill up the last line
     static const uint8_t pad[9] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };

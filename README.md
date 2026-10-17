@@ -184,7 +184,11 @@ bit, 8 data bits LSB first with 1 = black, and a black stop bit. The
 packets (sync 56 AE, header, scrambled payload, 16 bit sum) are
 described in vdpacket.c.
 
-Some details could not be checked against a recording and are guesses:
-the group counter in the header counts groups of 4 packets, the send
-time in file headers is a DOS date and time, and the 6 bytes before the
-name in an info block are zero.
+These details were checked against seven recordings from 1992 to 1994:
+the group counter in bits 4..6 of B is ((C+1)>>2)&7 on file streams
+(groups end at C = 2, 6, 10, ... and run on across files) and (C>>2)&7
+on stream 01, whose packets are sent only once; the send time in file
+headers, end packets and info blocks is the DOS date and time the packet
+goes out; info blocks are 00, send time, a 16 bit count, the name length
+and the name. Still unknown, and sent as zeros: the last two bytes of
+the end packet and what follows the name in an info block.

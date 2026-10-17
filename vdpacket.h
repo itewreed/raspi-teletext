@@ -51,6 +51,9 @@ typedef struct vd_tx {
     // Called before each group is sent, eg to slip in a clock packet.
     void (*hook)(void *ctx);
     int in_hook;
+    // Time put into file headers, end packets and info blocks. NULL
+    // means the current time.
+    time_t (*now)(void *ctx);
 } vd_tx;
 
 typedef struct vd_stream {
@@ -58,7 +61,11 @@ typedef struct vd_stream {
     uint8_t A;          // data stream number
     uint8_t sub;        // sub channel (bit 7 of B)
     uint8_t C;          // packet counter of the next packet
-    uint8_t group;      // group counter (bits 4..6 of B)
+    // Groups are counted in bits 4..6 of B as ((C + phase) >> 2) & 7.
+    // Recordings have phase 1 on file streams, so the first group of a
+    // stream is C 0..2, and phase 0 on stream 01.
+    int phase;
+    int repeat;         // how often each group is sent
     int queued;
     uint8_t payload[VD_GROUP][VD_MAX_PAYLOAD];
     uint8_t log2[VD_GROUP];
@@ -83,8 +90,10 @@ void vd_flush(vd_stream *s);
 uint32_t vd_dos_time(time_t t);
 
 int vd_send_file(vd_stream *s, const char *name, const uint8_t *data, uint32_t size,
-                 time_t mtime, time_t now);
+                 time_t mtime);
+// Clock on stream 01, sent once (not repeated) and at once.
+void vd_clock_init(vd_stream *s, vd_tx *tx);
 void vd_send_clock(vd_stream *s, time_t now);
-void vd_send_info(vd_stream *s, const char *text);
+void vd_send_info(vd_stream *s, const char *text, int count);
 
 #endif

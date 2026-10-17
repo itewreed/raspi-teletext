@@ -107,6 +107,13 @@ void vd_tx_init(vd_tx *tx, vd_emit_func emit, void *ctx, uint32_t seed, int repe
     tx->repeat = repeat > 0 ? repeat : 1;
     tx->hook = NULL;
     tx->in_hook = 0;
+    tx->now = NULL;
+}
+
+
+static time_t now(vd_tx *tx)
+{
+    return tx->now ? tx->now(tx->ctx) : time(NULL);
 }
 
 
@@ -116,6 +123,16 @@ void vd_stream_init(vd_stream *s, vd_tx *tx, uint8_t A, int sub)
     s->tx = tx;
     s->A = A;
     s->sub = sub ? 1 : 0;
+    s->phase = 1;
+    s->repeat = tx->repeat;
+}
+
+
+void vd_clock_init(vd_stream *s, vd_tx *tx)
+{
+    vd_stream_init(s, tx, 0x01, 0);
+    s->phase = 0;
+    s->repeat = 1;
 }
 
 
@@ -133,15 +150,15 @@ void vd_flush(vd_stream *s)
     }
     // All copies of a packet are identical, including the scrambling.
     for (int i = 0; i < s->queued; i++) {
-        uint8_t B = s->log2[i] | (s->group & 7) << 4 | s->sub << 7;
+        uint8_t C = s->C - s->queued + i;
+        uint8_t B = s->log2[i] | ((C + s->phase) >> 2 & 7) << 4 | s->sub << 7;
         uint8_t D = rnd(s->tx), E = rnd(s->tx), F = rnd(s->tx), S = rnd(s->tx);
-        len[i] = vd_build_packet(pkt[i], s->A, B, s->C - s->queued + i, s->payload[i], D, E, F, S);
+        len[i] = vd_build_packet(pkt[i], s->A, B, C, s->payload[i], D, E, F, S);
     }
-    for (int r = 0; r < s->tx->repeat; r++)
+    for (int r = 0; r < s->repeat; r++)
         for (int i = 0; i < s->queued; i++)
             s->tx->emit(pkt[i], len[i], s->tx->ctx);
     s->queued = 0;
-    s->group = (s->group + 1) & 7;
 }
 
 
@@ -157,7 +174,8 @@ int vd_send(vd_stream *s, const uint8_t *payload, size_t len)
     s->log2[s->queued] = log2;
     s->queued++;
     s->C++;
-    if (s->queued == VD_GROUP)
+    // A group ends where the group counter changes, also within a file.
+    if (((s->C + s->phase) & 3) == 0)
         vd_flush(s);
     return 0;
 }
@@ -187,19 +205,20 @@ static void put32(uint8_t *p, uint32_t v)
 // File transfer:
 //   02 [send time 4] [size LE32] [DOS time 4] [name length] [name]
 //   04 [up to 255 data bytes]     one packet per block, counter in C
-//   03 [send time 4]              end of file
+//   03 [send time 4] 00 [2 bytes] end of file
+// The send times are DOS date and time of when the packet goes out; in
+// recordings they match the clock packets. The last two bytes of the end
+// packet are unknown (they look like a check value) and are sent as 0.
 int vd_send_file(vd_stream *s, const char *name, const uint8_t *data, uint32_t size,
-                 time_t mtime, time_t now)
+                 time_t mtime)
 {
     uint8_t p[VD_MAX_PAYLOAD];
     size_t nl = strlen(name);
-    uint32_t sent = vd_dos_time(now);
 
     if (nl < 1 || nl > 12)
         return -1;
-    vd_flush(s);
     p[0] = VD_TYPE_HEADER;
-    put32(p + 1, sent);
+    put32(p + 1, vd_dos_time(now(s->tx)));
     put32(p + 5, size);
     put32(p + 9, vd_dos_time(mtime));
     p[13] = nl;
@@ -214,10 +233,10 @@ int vd_send_file(vd_stream *s, const char *name, const uint8_t *data, uint32_t s
         vd_send(s, p, 1 + n);
     }
 
+    memset(p, 0, 8);
     p[0] = VD_TYPE_END;
-    put32(p + 1, sent);
-    vd_send(s, p, 5);
-    vd_flush(s);
+    put32(p + 1, vd_dos_time(now(s->tx)));
+    vd_send(s, p, 8);
     return 0;
 }
 
@@ -239,15 +258,21 @@ void vd_send_clock(vd_stream *s, time_t now)
 }
 
 
-// Info block, eg the name of a software package: 00 [6 bytes] [length] [text]
-void vd_send_info(vd_stream *s, const char *text)
+// Info block at the start of a transmission, eg the name of a software
+// package: 00 [send time 4] [count LE16] [length] [name] 00 00 00 ...
+// In recordings the count is small (1..37) and 2..4 for the VORSCHAU
+// files; it is taken to be the number of files. What follows the name
+// varies between years and is sent as zeros.
+void vd_send_info(vd_stream *s, const char *text, int count)
 {
-    uint8_t p[VD_MAX_PAYLOAD] = { VD_TYPE_INFO };
+    uint8_t p[32] = { VD_TYPE_INFO };
     size_t n = strlen(text);
-    if (n > 39)
-        n = 39;
+    if (n > sizeof p - 11)
+        n = sizeof p - 11;
+    put32(p + 1, vd_dos_time(now(s->tx)));
+    p[5] = count;
+    p[6] = count >> 8;
     p[7] = n;
     memcpy(p + 8, text, n);
-    vd_send(s, p, 8 + n);
-    vd_flush(s);
+    vd_send(s, p, sizeof p);
 }

@@ -102,15 +102,14 @@ static void demo(uint32_t seed)
     vd_tx_init(&tx, emit, NULL, seed, 2);
     tx.hook = clock_hook;
     vd_stream_init(&files, &tx, 0x03, 0);
-    vd_stream_init(&clock_stream, &tx, 0x01, 0);
+    vd_clock_init(&clock_stream, &tx);
     for (int n = 1; len < sizeof text - 80; n++)
         len += snprintf((char *)text + len, sizeof text - len,
                         "raspi-teletext VideoDat test, line %d\r\n", n);
 
     while (1) {
-        time_t now = time(NULL);
-        vd_send_info(&files, "RASPI-VD");
-        vd_send_file(&files, "RASPI.TXT", text, len, now, now);
+        vd_send_info(&files, "RASPI-VD", 1);
+        vd_send_file(&files, "RASPI.TXT", text, len, time(NULL));
     }
 }
 
