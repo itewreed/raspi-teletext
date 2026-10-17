@@ -45,10 +45,10 @@
 #define DEFAULT_MASK (0x0070)
 
 uint16_t line_mask[2];
-// Position of the first start bit in pixels. Recordings have it 11.7 us
-// after the start of the line sync, which is about 11 pixels into the line
-// as raspi-teletext positions it.
-double start = 11;
+// Position of the first start bit in pixels. 44 puts it where it is in
+// recordings of Pro7, compared on a capture of the output. The data then
+// ends at pixel 718, just inside the 720 pixel line.
+double start = 44;
 
 
 void draw(uint8_t *image, int next_resource)

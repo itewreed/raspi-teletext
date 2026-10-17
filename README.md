@@ -156,7 +156,7 @@ The line masks select the lines carrying data: bit n is line 7+n on the
 first field and 320+n on the second (note that this is the other way
 round from teletext). The default, 0x0070, is lines 11-13 and 324-326,
 which is where Pro7 sent it. `-x` moves the first bit, in pixels of
-74 ns, and `-s` seeds the scrambling. The other options are as for
+74 ns (default 44, matched to a recording), and `-s` seeds the scrambling. The other options are as for
 teletext.
 
     vdenc [-a stream] [-u] [-r count] [-c seconds] [-b rate] [-i text] \
