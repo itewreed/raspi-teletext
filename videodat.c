@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
                 start = strtod(optarg,NULL);
                 break;
             default:
-                fprintf(stderr, "Usage: %s [-m first field lines] [-o second field lines] [-l level] [-x start] [-s seed] [-]\n", argv[0]);
+                fprintf(stderr, "Usage: %s [-m first field line mask, eg 0x0070] [-o second field line mask] [-l level] [-x start] [-s seed] [-]\n", argv[0]);
                 return 1;
         }
     }

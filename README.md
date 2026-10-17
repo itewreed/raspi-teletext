@@ -152,11 +152,39 @@ over. Running "videodat -" sends the byte stream read from stdin, which
 
     ./vdenc -l -i MYPACKET FILE1.EXE README.TXT | sudo ./videodat -
 
-The line masks select the lines carrying data: bit n is line 7+n on the
-first field and 320+n on the second (note that this is the other way
-round from teletext). The default, 0x0070, is lines 11-13 and 324-326,
-which is where Pro7 sent it. `-x` moves the first bit, in pixels of
-74 ns (default 44, matched to a recording), and `-s` seeds the scrambling. The other options are as for
+The line masks select the lines carrying data. They are 16 bit numbers,
+best written in hexadecimal with a leading `0x` (without it, the number
+is read as decimal). Bit n set means line 7+n on the first field (`-m`)
+or line 320+n on the second field (`-o`) carries data; note that this is
+the other way round from teletext. If only one of `-m` and `-o` is
+given, it is used for both fields. The default, 0x0070, is lines 11-13
+and 324-326, which is where Pro7 sent it.
+
+| bit | 0  | 1  | 2  | 3  | 4  | 5  | 6  | 7  | 8  | 9  | 10 | 11 | 12 | 13 | 14 | 15 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| `-m` line | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 |
+| `-o` line | 320 | 321 | 322 | 323 | 324 | 325 | 326 | 327 | 328 | 329 | 330 | 331 | 332 | 333 | 334 | 335 |
+
+Examples, with the same mask on both fields:
+
+| mask   | first field | second field | lines per frame | bytes/s | `vdenc -b` |
+|--------|-------------|--------------|-----------------|---------|------------|
+| 0x0010 | 11          | 324          | 2               | 500     | 500        |
+| 0x0070 | 11-13       | 324-326      | 6 (default)     | 1500    | 1500       |
+| 0x00F0 | 11-14       | 324-327      | 8               | 2000    | 2000       |
+| 0x01F0 | 11-15       | 324-328      | 10              | 2500    | 2500       |
+| 0x0FF0 | 11-18       | 324-331      | 16              | 4000    | 4000       |
+| 0x00FF | 7-14        | 320-327      | 16              | 4000    | 4000       |
+| 0xFF00 | 15-22       | 328-335      | 16              | 4000    | 4000       |
+| 0xFFFF | 7-22        | 320-335      | 32              | 8000    | 8000       |
+
+Different masks per field are added up: `-m 0x0070 -o 0x0010` is lines
+11-13 and 324, 4 lines per frame, 1000 bytes/s. Each line carries 10
+bytes, 25 times a second, so the data rate is 250 bytes/s per line in
+the frame.
+
+`-x` moves the first bit, in pixels of 74 ns (default 44, matched to a
+recording), and `-s` seeds the scrambling. The other options are as for
 teletext.
 
     vdenc [-a stream] [-u] [-r count] [-c seconds] [-b rate] [-i text] \
@@ -165,7 +193,21 @@ teletext.
 writes the files as packets to stdout: a header packet, one packet per
 255 bytes and an end packet per file, with clock packets in between.
 `-r` sets how often each group of 4 packets is sent (2, as broadcast),
-`-l` loops forever. vdenc doesn't need a Raspberry Pi, and its output
+`-l` loops forever.
+
+vdenc doesn't know how fast its output is sent, so `-b` has to tell it:
+the clock packets (every `-c` seconds) and the send times in the file
+headers are worked out from the number of bytes written and `-b`. Set
+it to 250 bytes/s times the number of lines per frame `videodat` (or
+`vdvbi`) uses, as in the table above. The default, 1500, fits the
+default 6 lines. With more lines and the default `-b`, the clock in the
+stream runs slow; with 12 lines, for example, it runs at half speed.
+For example, for 10 lines:
+
+    ./vdenc -l -b 2500 FILE.ZIP | sudo ./videodat -m 0x01F0 -
+
+`videodat` without `-` (the demo) takes its times from the system clock
+and doesn't need this. vdenc doesn't need a Raspberry Pi, and its output
 can be read by `videodat_decoder.py --bytes`.
 
     vdvbi [-m mask] [-o mask] [-x us] [-b black] [-w white] [-g ns] \
