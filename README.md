@@ -23,7 +23,7 @@ Build the programs:
 
     make
 
-Twiddle the registers:
+Twiddle the registers (not needed on KMS systems, see below):
 
     sudo ./tvctl on
 
@@ -40,6 +40,46 @@ If you're connected using NTSC, run the demo:
     ./cea608
 
 and enable the TV's closed caption controls to show CC1.
+
+Raspberry Pi 4 and other KMS systems
+------------------------------------
+
+Current Raspberry Pi OS and Debian images use the vc4-kms-v3d kernel
+driver. Dispmanx is not available there, so the old renderer cannot
+run. When `/opt/vc/include/bcm_host.h` is
+missing, `make` builds the programs against DRM/KMS instead (force this
+with `make RENDER=kms`, or the old renderer with `make RENDER=dispmanx`).
+This needs the libdrm headers:
+
+    sudo apt install libdrm-dev pkg-config
+
+Enable composite output in `config.txt` (`/boot/firmware/config.txt`
+on Bookworm) and reboot. On the Pi 4 this turns HDMI off:
+
+    dtoverlay=vc4-kms-v3d,composite
+    enable_tvout=1
+
+There is no need to run tvctl. The programs set a video mode with extra
+lines at the top of each field, which programs the same timing tvctl
+does, and select PAL (teletext) or NTSC (cea608) themselves. They must
+be the only program using the display, so run them as root from a text
+console, not from inside a desktop session. The console stays visible
+below the VBI lines, and the normal mode comes back when the program
+exits.
+
+If the raspi-teletext gets interrupted at startup check if a desktop manager is running. It has to be stopped before the program can run, i.e.
+
+```sudo systemctl stop lightdm```
+
+At startup the programs measure the field lengths to find out which
+field is which, and print the result. If teletext pages come out
+garbled, try again with `RASPI_TELETEXT_SWAP_FIELDS=1` set in the
+environment, and please report which one works.
+
+The data is moved 20 pixels left of where dispmanx put it, which puts
+the clock run-in where real broadcasts have it on a Pi 4. Set
+`RASPI_TELETEXT_XSHIFT` to a number of pixels (74 ns each) to adjust
+it.
 
 Detailed Usage
 --------------
