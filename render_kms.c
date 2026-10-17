@@ -43,6 +43,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <time.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -50,7 +51,7 @@
 
 #include "render.h"
 
-#define MEASURE_FIELDS (64)
+#define MEASURE_FIELDS (100)
 
 typedef struct dumb_fb {
     uint32_t fb_id;
@@ -77,13 +78,18 @@ typedef struct render_shared {
 
     // set by the event handlers
     int flip_pending;
-    unsigned int flip_seq;
+    uint64_t flip_ns;
     int vblank_pending;
-    uint64_t vblank_seq;
     uint64_t vblank_ns;
 
-    // sequence parity of the vblank which ends a field drawn from odd rows,
-    // or -1 if unknown
+    // The vblank sequence numbers can't be used to count fields: on
+    // interlaced modes the kernel computes the frame duration from the
+    // already halved vtotal and halves it again, so it counts two vblanks
+    // per field. Fields are counted from the vblank timestamps instead,
+    // relative to field 0 at t0_ns.
+    uint64_t t0_ns;
+    uint64_t field_ns;
+    // parity of the fields drawn from odd rows, or -1 if unknown
     int odd_parity;
     int swap;
 
@@ -319,7 +325,7 @@ static void page_flip_handler(int fd, unsigned int sequence, unsigned int tv_sec
                               unsigned int crtc_id, void *data)
 {
     render_shared *r = data;
-    r->flip_seq = sequence;
+    r->flip_ns = tv_sec * 1000000000ULL + tv_usec * 1000ULL;
     r->flip_pending = 0;
 }
 
@@ -327,7 +333,6 @@ static void page_flip_handler(int fd, unsigned int sequence, unsigned int tv_sec
 static void sequence_handler(int fd, uint64_t sequence, uint64_t ns, uint64_t data)
 {
     render_shared *r = (render_shared *)(uintptr_t)data;
-    r->vblank_seq = sequence;
     r->vblank_ns = ns;
     r->vblank_pending = 0;
 }
@@ -369,16 +374,41 @@ static int wait_vblank(render_shared *r)
 }
 
 
+static uint64_t now_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
+
+static int64_t field_index(render_shared *r, uint64_t ns)
+{
+    return ((int64_t)(ns - r->t0_ns) + (int64_t)r->field_ns / 2) / (int64_t)r->field_ns;
+}
+
+
+static int compare_u64(const void *a, const void *b)
+{
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return (x > y) - (x < y);
+}
+
+
 // The two fields of an interlaced mode differ in length by one line: PAL
 // has an extra line of back porch on the odd field, and NTSC an extra line
 // of front porch on the even field (see vc4_crtc_config_pv). Either way,
-// the longer gap between vblanks is the one which ends with an odd field.
-// Measuring that tells us which field each vblank sequence number belongs
-// to, so we can send the packets in the right order.
+// the longer gap between vblank interrupts is the one which ends with an
+// odd field. Measuring that tells us which field is which, so we can send
+// the packets in the right order.
+//
+// The kernel's vblank timestamps are corrected to be evenly spaced, so this
+// uses the time we receive each event instead, and the median to get rid
+// of scheduling delays.
 static void measure_fields(render_shared *r)
 {
-    uint64_t seq[MEASURE_FIELDS], ns[MEASURE_FIELDS];
-    double total[2] = { 0, 0 };
+    uint64_t ns[MEASURE_FIELDS], recv[MEASURE_FIELDS];
+    uint64_t gaps[2][MEASURE_FIELDS];
     int count[2] = { 0, 0 };
 
     r->odd_parity = -1;
@@ -387,21 +417,25 @@ static void measure_fields(render_shared *r)
             fprintf(stderr, "Warning: could not wait for vblank, field order unknown.\n");
             return;
         }
-        seq[n] = r->vblank_seq;
+        recv[n] = now_ns();
         ns[n] = r->vblank_ns;
+        if (n == 0)
+            r->t0_ns = ns[0];
     }
     for (int n = 1; n < MEASURE_FIELDS; n++) {
-        if (seq[n] != seq[n-1] + 1)
+        int64_t f = field_index(r, ns[n]);
+        if (f != field_index(r, ns[n-1]) + 1)
             continue;
-        total[seq[n] & 1] += ns[n] - ns[n-1];
-        count[seq[n] & 1]++;
+        gaps[f & 1][count[f & 1]++] = recv[n] - recv[n-1];
     }
-    if (!count[0] || !count[1]) {
+    if (count[0] < 8 || count[1] < 8) {
         fprintf(stderr, "Warning: missed too many vblanks, field order unknown.\n");
         return;
     }
-    double diff = total[1] / count[1] - total[0] / count[0];
-    fprintf(stderr, "Field length difference: %.1f us.\n", diff / 1000.0);
+    qsort(gaps[0], count[0], sizeof gaps[0][0], compare_u64);
+    qsort(gaps[1], count[1], sizeof gaps[1][0], compare_u64);
+    double diff = (double)gaps[1][count[1] / 2] - (double)gaps[0][count[0] / 2];
+    fprintf(stderr, "Field length difference: %.1f us (%d/%d samples).\n", diff / 1000.0, count[0], count[1]);
     // one line is 64us, so anything much smaller than that is just noise
     if (diff > 20000)
         r->odd_parity = 1;
@@ -412,10 +446,10 @@ static void measure_fields(render_shared *r)
 }
 
 
-// Which rows (0 = even, 1 = odd) are output in the field ending at vblank seq.
-static int field_rows(render_shared *r, uint64_t seq)
+// Which rows (0 = even, 1 = odd) are output in field number f.
+static int field_rows(render_shared *r, int64_t f)
 {
-    int rows = (r->odd_parity < 0) ? 0 : ((int)(seq & 1) == r->odd_parity);
+    int rows = (r->odd_parity < 0) ? 0 : ((int)(f & 1) == r->odd_parity);
     return rows ^ r->swap;
 }
 
@@ -444,9 +478,10 @@ void *render_thread_func(void *anon_render_shared)
     render_shared *r = anon_render_shared;
     int next = 1;
     int extra = 0;
-    int have_seq = 0;
+    int have_last = 0;
+    int flips = 0;
     int first_field = 0;
-    unsigned int last_seq = 0;
+    int64_t last_field = 0;
 
     while (!r->done) {
         fill_fb(r, &r->vbi[next], first_field);
@@ -467,19 +502,24 @@ void *render_thread_func(void *anon_render_shared)
         if (wait_event(r, &r->flip_pending))
             break;
 
-        if (have_seq) {
-            unsigned int delta = r->flip_seq - last_seq;
+        int64_t field = field_index(r, r->flip_ns);
+        if (have_last) {
+            int64_t delta = field - last_field;
+            if (flips < 8)
+                fprintf(stderr, "Flip %d: %lld fields after the last one, first field %s rows.\n",
+                        flips, (long long)delta, first_field ? "odd" : "even");
+            flips++;
             if ((delta == 1 && !extra) || (delta == 3 && extra)) {
                 extra ^= 1;
-                fprintf(stderr, "Flips were %u fields apart, %s waiting for an extra vblank.\n",
-                        delta, extra ? "now" : "no longer");
+                fprintf(stderr, "Flips were %lld fields apart, %s waiting for an extra vblank.\n",
+                        (long long)delta, extra ? "now" : "no longer");
             }
         }
-        have_seq = 1;
-        last_seq = r->flip_seq;
+        have_last = 1;
+        last_field = field;
         // the buffer we just flipped to started on the field ending at
-        // flip_seq + extra, and the next one will start two fields later
-        first_field = field_rows(r, r->flip_seq + extra);
+        // this flip + extra, and the next one will start two fields later
+        first_field = field_rows(r, field + extra);
         next ^= 1;
     }
 
@@ -638,6 +678,7 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
 
+    r->field_ns = (uint64_t)mode.htotal * mode.vtotal * 1000000ULL / mode.clock / 2;
     measure_fields(r);
 
     r->done = 0;
