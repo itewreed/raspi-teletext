@@ -67,9 +67,22 @@ console, not from inside a desktop session. The console stays visible
 below the VBI lines, and the normal mode comes back when the program
 exits.
 
-If the raspi-teletext gets interrupted at startup check if a desktop manager is running. It has to be stopped before the program can run, i.e.
+A desktop takes the display back, and a display manager that systemd
+keeps restarting does so every few seconds, so the output stops with
+"Page flip failed". The programs therefore check at startup for a
+running display manager (`display-manager.service`, also while systemd
+restarts it) or desktop program (lightdm, gdm, sddm, Xorg, Xwayland,
+wayfire, labwc, weston, sway, ...) and refuse to start if they find one.
+Stop it first:
 
-```sudo systemctl stop lightdm```
+    sudo systemctl stop lightdm
+
+or, to boot without a desktop from now on:
+
+    sudo systemctl set-default multi-user.target
+
+Set `RASPI_TELETEXT_IGNORE_DESKTOP=1` to start anyway, with only a
+warning.
 
 At startup the programs measure the field lengths to find out which
 field is which, and print the result. If teletext pages come out

@@ -34,6 +34,8 @@
 // screen. The console framebuffer, if there is one, is put on the primary
 // plane below it, where the normal picture is.
 
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -468,6 +470,77 @@ static void fill_fb(render_shared *r, dumb_fb *fb, int first_field)
 }
 
 
+// A desktop takes the display back from us, and a display manager that
+// is restarted by systemd does so every time it starts, which ends in
+// "Page flip failed" after a few seconds. So look for one before starting.
+static const char *desktop_programs[] = {
+    "lightdm", "gdm", "gdm3", "sddm", "Xorg", "Xwayland", "wayfire", "labwc",
+    "weston", "sway", "kwin_wayland", "gnome-shell", "mutter", NULL
+};
+
+static int find_desktop(char *what, size_t size)
+{
+    // the display manager service, also while systemd restarts it
+    FILE *p = popen("systemctl is-active display-manager.service 2>/dev/null", "r");
+    if (p) {
+        char state[32] = "";
+        if (!fgets(state, sizeof state, p))
+            state[0] = 0;
+        pclose(p);
+        state[strcspn(state, "\n")] = 0;
+        if (strcmp(state, "active") == 0 || strcmp(state, "activating") == 0 ||
+            strcmp(state, "reloading") == 0) {
+            snprintf(what, size, "display-manager.service is %s", state);
+            return 1;
+        }
+    }
+
+    // desktop programs started some other way
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    int found = 0;
+    while (d && !found && (e = readdir(d))) {
+        if (!isdigit((unsigned char)e->d_name[0]))
+            continue;
+        char path[300], comm[64] = "";
+        snprintf(path, sizeof path, "/proc/%s/comm", e->d_name);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            continue;
+        if (fgets(comm, sizeof comm, f))
+            comm[strcspn(comm, "\n")] = 0;
+        fclose(f);
+        for (int i = 0; desktop_programs[i] && !found; i++) {
+            if (strcmp(comm, desktop_programs[i]) == 0) {
+                snprintf(what, size, "%s is running (pid %s)", comm, e->d_name);
+                found = 1;
+            }
+        }
+    }
+    if (d)
+        closedir(d);
+    return found;
+}
+
+
+static void check_desktop(void)
+{
+    char what[128];
+    if (!find_desktop(what, sizeof what))
+        return;
+    int ignore = getenv("RASPI_TELETEXT_IGNORE_DESKTOP") != NULL;
+    fprintf(stderr,
+        "%s: a desktop is running: %s.\n"
+        "It takes the display away, and the output stops with \"Page flip failed\".\n"
+        "Stop it first, eg with \"sudo systemctl stop display-manager\", and run\n"
+        "from a text console or over ssh.%s\n",
+        ignore ? "Warning" : "Error", what,
+        ignore ? "" : " Set RASPI_TELETEXT_IGNORE_DESKTOP=1 to start anyway.");
+    if (!ignore)
+        exit(-1);
+}
+
+
 // Each buffer holds new data for both fields and must be shown for exactly
 // two fields. Depending on when the hardware latches the new display list,
 // the flip event arrives at the end of the first field the buffer is shown
@@ -498,6 +571,9 @@ void *render_thread_func(void *anon_render_shared)
         drmModeAtomicFree(req);
         if (ret) {
             fprintf(stderr, "Page flip failed: %s\n", strerror(errno));
+            char what[128];
+            if (find_desktop(what, sizeof what))
+                fprintf(stderr, "Probably the desktop took the display: %s.\n", what);
             break;
         }
         if (wait_event(r, &r->flip_pending))
@@ -561,6 +637,8 @@ void *render_start(int width, int height, int offset, int fixed, InitFunc init_f
         fprintf(stderr, "Out of memory.\n"); exit(-1);
     }
     init_func(r->image);
+
+    check_desktop();
 
     r->fd = open_card(&res, &conn);
     if (r->fd < 0) {
