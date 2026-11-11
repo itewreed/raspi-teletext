@@ -309,6 +309,56 @@ goes out; info blocks are 00, send time, a 16 bit count, the name length
 and the name. Still unknown, and sent as zeros: the last two bytes of
 the end packet and what follows the name in an info block.
 
+r@dio.mp3 / MEGARADIO.mp3
+-------------------------
+
+From 2000 to 2003, r@dio.mp3 (Musicplay) and later MEGARADIO.mp3
+(Megaradio/NBC GIGA) sent MP3 music, album tracks, covers and HTML pages
+in the VBI of NBC Europe, as teletext packets in magazine 8 ("TV Radio
+Cast" by RapidSolution). `rmenc` makes such a stream, so it can be sent
+with `teletext` and checked with the decoder in
+https://github.com/itewreed/radiomp3-decoder, which also describes the
+format (docs/FORMAT.md).
+
+    rmenc [-l] [-p page] -s [ID:]file -f [ID:]file ...
+
+`-s` sends a file as the live stream, the MP3 audio the player played
+at once, and `-f` as a file transfer (album track, cover, HTML page,
+`stream.ini`); both can be given several times. The ID tells the
+receiver which is which: a multiple of 10 (not 100) is a stream, any
+other number a file. Without an ID, streams get 10, 20, ... and files 1,
+2, 3, ...; the name of a file (up to 24 characters) goes in its file
+info. A stream named "-" is read from stdin as it comes, for live
+radio. `-l` sends everything over and over, as a carousel; a looped
+stream runs on, so it decodes as one long MP3. With a stream from stdin,
+rmenc ends when stdin ends. `-p` sets the page number in the page
+headers (hex, default 00, the decoder ignores it).
+
+The output is 42 byte teletext packets, as `teletext -` and `ttvd -t -`
+read them:
+
+    ./rmenc -l -s song.mp3 -f cover.jpg -f index.html | sudo ./teletext -
+
+    # live radio
+    ffmpeg -re -i http://example.com/radio -c:a libmp3lame -b:a 96k -f mp3 - \
+        | ./rmenc -l -s - -f cover.jpg | sudo ./teletext -
+
+Like vdenc, rmenc doesn't need a Raspberry Pi. Without `-l` and stdin
+its output is the same, byte for byte, as `radiomp3 testsignal` with the
+same files and IDs, and the decoder gets the files back from it:
+
+    ./rmenc -s 10:song.mp3 -f 23:cover.jpg > test.t42
+    radiomp3 decode test.t42 -o out/
+
+The data rate: every 13 rows of data (880 bytes in a stream row, 858 in
+a file row) go out with 2 rows of Reed-Solomon parity as 15 pages of 24
+packets, 360 packets. With all 32 VBI lines (800 packets/s) that is
+25400 bytes/s, about 200 kbit/s for a stream alone; with `-m 0x0070`
+(650 packets/s) about 165 kbit/s. Streams and files take turns, one row
+each, so with a live stream and one file the stream gets half: on all
+32 lines 96 kbit/s fits, 128 kbit/s doesn't, and the stream falls
+behind.
+
 Teletext and VideoDat together (experimental)
 ---------------------------------------------
 
